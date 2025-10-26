@@ -32,20 +32,19 @@ jobs:
         echo "$VNC_PASSWORD" | vncpasswd -f > /home/runner/.vnc/passwd
         chmod 600 /home/runner/.vnc/passwd
         
-        # إنشاء ملف xstartup ليخبر VNC بتشغيل XFCE
-        cat <<EOF > /home/runner/.vnc/xstartup
-#!/bin/sh
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-exec startxfce4
-EOF
+        # --==[ التعديل هنا ]==--
+        # استخدام 'echo' لإنشاء ملف xstartup لتجنب أخطاء YAML
+        echo "#!/bin/sh" > /home/runner/.vnc/xstartup
+        echo "unset SESSION_MANAGER" >> /home/runner/.vnc/xstartup
+        echo "unset DBUS_SESSION_BUS_ADDRESS" >> /home/runner/.vnc/xstartup
+        echo "exec startxfce4" >> /home/runner/.vnc/xstartup
+        # --==[ نهاية التعديل ]==--
         
         chmod +x /home/runner/.vnc/xstartup
 
     - name: Start VNC Server in background
       run: |
         # تشغيل خادم VNC على الشاشة :1 (التي تستخدم البورت 5901)
-        # -localhost no : للسماح بالاتصالات من خارج الجهاز (عبر Tailscale)
         vncserver :1 -localhost no -geometry 1280x800 -depth 24
 
     - name: Install and Start Tailscale
