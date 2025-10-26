@@ -1,75 +1,53 @@
-name: Windows RDP via Tailscale
+name: Linux SSH via Tailscale
 
 on: [push]
 
 jobs:
-  rdp-setup:
-    runs-on: windows-latest
-    timeout-minutes: 360  # 6 hour max
+  ssh-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # 6 hour max
 
     steps:
-    - name: Enable Remote Desktop
-      run: |
-        Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0
-        Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
-
-    - name: Create RDP User
-      run: |
-        net user kamel007 kamel007 /add /Y
-        net localgroup administrators kamel007 /add
-        reg add "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon\SpecialAccounts\UserList" /v kamel007 /t REG_DWORD /d 0 /f
-
     - name: Download and install Tailscale
       run: |
-        Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
-        # Use Start-Process -Wait to ensure installation finishes before proceeding
-        Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/S" -Wait
+        curl -fsSL https://tailscale.com/install.sh | sudo sh
 
-    - name: Start Tailscale and display connection info
+    - name: Start Tailscale and enable SSH
       env:
+        # تأكد من إضافة هذا الـ Secret في إعدادات المستودع
         TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
       run: |
-        if (-not $env:TAILSCALE_AUTH_KEY) {
-          Write-Error "::error:: TAILSCALE_AUTH_KEY secret is not set."
+        if [ -z "$TAILSCALE_AUTH_KEY" ]; then
+          echo "::error:: TAILSCALE_AUTH_KEY secret is not set."
           exit 1
-        }
+        fi
         
-        # Start Tailscale (call directly, it should be in PATH)
-        tailscale.exe up --authkey=$env:TAILSCALE_AUTH_KEY
+        # تشغيل Tailscale والإعلان عن خدمة SSH (الأمر --ssh هو ميزة رائعة)
+        sudo tailscale up --authkey=$TAILSCALE_AUTH_KEY --ssh
         
-        # Wait for connection
-        Write-Output "Waiting 10 seconds for Tailscale to connect..."
-        Start-Sleep -Seconds 10
+        echo "Waiting 10 seconds for Tailscale to connect..."
+        sleep 10
         
-        # Get Tailscale IP
-        $tsIp = tailscale.exe ip -4
+        # جلب عنوان IP الخاص بـ Tailscale
+        TS_IP=$(tailscale ip -4)
         
-        if (-not $tsIp) {
-          Write-Error "::error::Failed to get Tailscale IP after 10 seconds."
-          tailscale.exe status
+        if [ -z "$TS_IP" ]; then
+          echo "::error::Failed to get Tailscale IP."
+          sudo tailscale status
           exit 1
-        }
+        fi
 
-        Write-Output "=========================================="
-        Write-Output "||        RDP CONNECTION DETAILS        ||"
-        Write-Output "=========================================="
-        Write-Output "Address (Tailscale IP): $tsIp"
-        Write-Output "Username: kamel007"
-        Write-Output "Password: kamel007"
-        Write-Output "------------------------------------------"
-        Write-Output "1. Connect your local device to your Tailnet"
-        Write-Output "2. Open Remote Desktop (mstsc)"
-        Write-Output "3. Connect to: $tsIp"
-        Write-Output "=========================================="
+        echo "=========================================="
+        echo "||         SSH CONNECTION DETAILS         ||"
+        echo "=========================================="
+        echo "To connect, run this command on your local machine"
+        echo "(after logging into Tailscale locally):"
+        echo ""
+        echo "ssh runner@$TS_IP"
+        echo ""
+        echo "The GitHub user is 'runner'"
+        echo "=========================================="
 
-        # Keep alive
-        while ($true) { Start-Sleep -Seconds 300 }
-
-    - name: Force cleanup
-      if: always()
-      run: |
-        try {
-          tailscale.exe down
-        } catch {
-          Write-Warning "Tailscale cleanup failed."
-        }
+    - name: Keep alive
+      # هذا الأمر يبقي الـ job شغالة
+      run: tail -f /dev/null
