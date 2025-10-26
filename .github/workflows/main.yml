@@ -1,20 +1,55 @@
-name: Linux SSH via Tailscale
+name: Linux VNC via Tailscale
 
 on: [push]
 
 jobs:
-  ssh-setup:
+  vnc-setup:
     runs-on: ubuntu-latest
     timeout-minutes: 360 # 6 hour max
 
     steps:
-    - name: Download and install Tailscale
+    - name: Install Desktop Environment and VNC Server
       run: |
-        curl -fsSL https://tailscale.com/install.sh | sudo sh
+        sudo apt-get update
+        # تعطيل أي شاشات تفاعلية أثناء التثبيت
+        export DEBIAN_FRONTEND=noninteractive
+        # تثبيت بيئة سطح مكتب خفيفة (XFCE) وخادم VNC
+        sudo apt-get install -y xfce4 xfce4-goodies tigervnc-standalone-server dbus-x11
 
-    - name: Start Tailscale and enable SSH
+    - name: Configure VNC Server
       env:
-        # تأكد من إضافة هذا الـ Secret في إعدادات المستودع
+        VNC_PASSWORD: ${{ secrets.VNC_PASSWORD }}
+      run: |
+        if [ -z "$VNC_PASSWORD" ]; then
+          echo "::error:: VNC_PASSWORD secret is not set."
+          exit 1
+        fi
+        
+        # إنشاء مجلد إعدادات VNC
+        mkdir -p /home/runner/.vnc
+        
+        # حفظ كلمة المرور المشفرة
+        echo "$VNC_PASSWORD" | vncpasswd -f > /home/runner/.vnc/passwd
+        chmod 600 /home/runner/.vnc/passwd
+        
+        # إنشاء ملف xstartup ليخبر VNC بتشغيل XFCE
+        cat <<EOF > /home/runner/.vnc/xstartup
+#!/bin/sh
+unset SESSION_MANAGER
+unset DBUS_SESSION_BUS_ADDRESS
+exec startxfce4
+EOF
+        
+        chmod +x /home/runner/.vnc/xstartup
+
+    - name: Start VNC Server in background
+      run: |
+        # تشغيل خادم VNC على الشاشة :1 (التي تستخدم البورت 5901)
+        # -localhost no : للسماح بالاتصالات من خارج الجهاز (عبر Tailscale)
+        vncserver :1 -localhost no -geometry 1280x800 -depth 24
+
+    - name: Install and Start Tailscale
+      env:
         TAILSCALE_AUTH_KEY: ${{ secrets.TAILSCALE_AUTH_KEY }}
       run: |
         if [ -z "$TAILSCALE_AUTH_KEY" ]; then
@@ -22,13 +57,15 @@ jobs:
           exit 1
         fi
         
-        # تشغيل Tailscale والإعلان عن خدمة SSH (الأمر --ssh هو ميزة رائعة)
-        sudo tailscale up --authkey=$TAILSCALE_AUTH_KEY --ssh
+        # تحميل وتثبيت Tailscale
+        curl -fsSL https://tailscale.com/install.sh | sudo sh
+        
+        # تشغيل Tailscale
+        sudo tailscale up --authkey=$TAILSCALE_AUTH_KEY
         
         echo "Waiting 10 seconds for Tailscale to connect..."
         sleep 10
         
-        # جلب عنوان IP الخاص بـ Tailscale
         TS_IP=$(tailscale ip -4)
         
         if [ -z "$TS_IP" ]; then
@@ -38,16 +75,18 @@ jobs:
         fi
 
         echo "=========================================="
-        echo "||         SSH CONNECTION DETAILS         ||"
+        echo "||         VNC CONNECTION DETAILS         ||"
         echo "=========================================="
-        echo "To connect, run this command on your local machine"
-        echo "(after logging into Tailscale locally):"
+        echo "Address (Tailscale IP + Port):"
         echo ""
-        echo "ssh runner@$TS_IP"
+        echo "$TS_IP:5901"
         echo ""
-        echo "The GitHub user is 'runner'"
+        echo "Password: [Your VNC_PASSWORD Secret]"
+        echo "=========================================="
+        echo "1. Connect your local device to Tailscale."
+        echo "2. Open your VNC client (e.g., RealVNC, TightVNC)."
+        echo "3. Connect to: $TS_IP:5901"
         echo "=========================================="
 
     - name: Keep alive
-      # هذا الأمر يبقي الـ job شغالة
       run: tail -f /dev/null
