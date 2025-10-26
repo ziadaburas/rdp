@@ -22,7 +22,8 @@ jobs:
     - name: Download and install Tailscale
       run: |
         Invoke-WebRequest -Uri "https://pkgs.tailscale.com/stable/tailscale-setup-latest.exe" -OutFile "tailscale-setup.exe"
-        .\tailscale-setup.exe /S
+        # Use Start-Process -Wait to ensure installation finishes before proceeding
+        Start-Process -FilePath ".\tailscale-setup.exe" -ArgumentList "/S" -Wait
 
     - name: Start Tailscale and display connection info
       env:
@@ -33,18 +34,19 @@ jobs:
           exit 1
         }
         
-        # Start Tailscale
-        & "C:\Program Files\Tailscale\tailscale.exe" up --authkey=$env:TAILSCALE_AUTH_KEY
+        # Start Tailscale (call directly, it should be in PATH)
+        tailscale.exe up --authkey=$env:TAILSCALE_AUTH_KEY
         
         # Wait for connection
+        Write-Output "Waiting 10 seconds for Tailscale to connect..."
         Start-Sleep -Seconds 10
         
         # Get Tailscale IP
-        $tsIp = & "C:\Program Files\Tailscale\tailscale.exe" ip -4
+        $tsIp = tailscale.exe ip -4
         
         if (-not $tsIp) {
           Write-Error "::error::Failed to get Tailscale IP after 10 seconds."
-          & "C:\Program Files\Tailscale\tailscale.exe" status
+          tailscale.exe status
           exit 1
         }
 
@@ -67,7 +69,7 @@ jobs:
       if: always()
       run: |
         try {
-          & "C:\Program Files\Tailscale\tailscale.exe" down
+          tailscale.exe down
         } catch {
           Write-Warning "Tailscale cleanup failed."
         }
